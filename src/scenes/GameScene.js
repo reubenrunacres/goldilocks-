@@ -146,7 +146,7 @@ class GameScene extends Phaser.Scene {
         }
         
         // Player attack
-        if (Phaser.Input.Keyboard.JustDown(this.keyE) && !this.isAttacking && !this.isBlocking && !this.playerAttackCooldown) {
+        if (Phaser.Input.Keyboard.JustDown(this.keyE) && !this.isAttacking && !this.isBlocking && !this.playerAttackCooldown && !this.isDead) {
             this.performAttack();
         }
         
@@ -162,6 +162,9 @@ class GameScene extends Phaser.Scene {
     }
 
     performAttack() {
+        // Safety check - don't attack if already attacking or dead
+        if (this.isAttacking || this.isDead) return;
+        
         this.isAttacking = true;
         
         // Create attack hitbox
@@ -177,8 +180,11 @@ class GameScene extends Phaser.Scene {
         
         // Add collision detection with a flag to prevent false hits
         this.attackHitbox.attackActive = true;
+        this.attackHitbox.attackId = Date.now(); // Unique identifier for this attack
+        
+        // Use a one-time collision that gets removed after use
         this.physics.add.overlap(this.attackHitbox, this.bear, () => {
-            if (this.attackHitbox && this.attackHitbox.attackActive && this.isAttacking) {
+            if (this.attackHitbox && this.attackHitbox.attackActive && this.isAttacking && this.attackHitbox.attackId) {
                 this.handlePlayerAttackHit();
                 this.attackHitbox.attackActive = false; // Prevent multiple hits
             }
@@ -288,14 +294,6 @@ class GameScene extends Phaser.Scene {
         this.bearIsAttacking = true;
         this.bear.setVelocityX(0);
         
-        // Flash red to show attack
-        this.bear.setTint(0xff4444);
-        
-        // Clear tint after attack
-        this.time.delayedCall(300, () => {
-            this.bear.clearTint();
-        });
-        
         // After wind-up delay, create actual attack hitbox
         this.time.delayedCall(800, () => {
             if (!this.bearIsAttacking) return;
@@ -330,11 +328,18 @@ class GameScene extends Phaser.Scene {
                 });
             });
         });
+        
+        // Reset attacking state after wind-up phase (even if attack is cancelled)
+        this.time.delayedCall(1200, () => {
+            if (this.bearIsAttacking) {
+                this.bearIsAttacking = false;
+            }
+        });
     }
     
     handlePlayerAttackHit() {
-        // Only process hit if player is actually attacking AND attack hitbox is active
-        if (!this.isAttacking || !this.attackHitbox || !this.attackHitbox.attackActive) return;
+        // Only process hit if player is actually attacking AND attack hitbox is active AND has valid attack ID
+        if (!this.isAttacking || !this.attackHitbox || !this.attackHitbox.attackActive || !this.attackHitbox.attackId) return;
         
         // Don't damage dead bear or if already hit recently
         if (this.bearIsDead || this.bearHitCooldown) return;
@@ -358,7 +363,9 @@ class GameScene extends Phaser.Scene {
             // Flash bear red to show damage
             this.bear.setTint(0xff4444);
             this.time.delayedCall(150, () => {
-                this.bear.clearTint();
+                if (!this.bearIsDead) {
+                    this.bear.clearTint();
+                }
             });
         }
         
@@ -435,6 +442,7 @@ class GameScene extends Phaser.Scene {
         this.isAttacking = false;
         this.isBlocking = false;
         this.playerHitCooldown = false;
+        this.playerAttackCooldown = false;
         if (this.attackHitbox) {
             this.attackHitbox.destroy();
             this.attackHitbox = null;
@@ -477,6 +485,35 @@ class GameScene extends Phaser.Scene {
         // optional death anim here
     }
     
+    showVictoryOverlay() {
+        if (this.victoryUI) { this.victoryUI.destroy(true); }
+        const cam = this.cameras.main;
+        const cx = cam.width / 2;
+        const cy = cam.height / 2;
+
+        // UI container above gameplay; fixed to screen
+        this.victoryUI = this.add.container(0, 0).setScrollFactor(0).setDepth(1000);
+
+        // soft dim background
+        const dim = this.add.rectangle(cx, cy, cam.width, cam.height, 0x000000, 0.35).setInteractive();
+        // main label
+        const title = this.add.text(cx, cy - 8, 'VICTORY!', {
+            fontFamily: 'monospace',
+            fontSize: '32px',
+            color: '#ffffff',
+            align: 'center'
+        }).setOrigin(0.5);
+
+        // sub label
+        const press = this.add.text(cx, cy + 24, 'Press ENTER', {
+            fontFamily: 'monospace',
+            fontSize: '16px',
+            color: '#ffd200'
+        }).setOrigin(0.5);
+
+        this.victoryUI.add([dim, title, press]);
+    }
+    
     bearDies() {
         console.log('Bear defeated!');
         this.bearIsDead = true;
@@ -495,16 +532,13 @@ class GameScene extends Phaser.Scene {
         this.bear.setTint(0x666666);
         this.bear.setVelocityX(0);
         
-        // Show victory message
-        this.add.text(160, 60, 'Victory!', {
-            fontSize: '20px',
-            fill: '#00ff00'
-        }).setOrigin(0.5);
+        // Show centered victory overlay
+        this.showVictoryOverlay();
         
-        this.add.text(160, 80, 'Bear defeated!', {
-            fontSize: '12px',
-            fill: '#ffffff'
-        }).setOrigin(0.5);
+        // Pause physics after callback returns to prevent deadlocks
+        this.time.delayedCall(0, () => {
+            this.physics.world.pause();
+        });
     }
     
     createArenaBackground() {

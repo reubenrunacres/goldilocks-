@@ -14,6 +14,9 @@ const config = {
     scene: [TitleScene, ControlsScene, GameScene, Arena2Scene] // TitleScene must be first
 };
 
+// Debug: Check if all scenes are loaded
+console.log('Available scenes:', { TitleScene, ControlsScene, GameScene, Arena2Scene });
+
 const game = new Phaser.Game(config);
 
 

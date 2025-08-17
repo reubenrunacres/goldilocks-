@@ -78,8 +78,10 @@ class ControlsScene extends Phaser.Scene {
         });
         
         console.log('[SCENE] ControlsScene started');
+        console.log('ControlsScene loaded successfully');
     }
 }
 
 // Make it globally available
 window.ControlsScene = ControlsScene;
+console.log('ControlsScene registered globally');

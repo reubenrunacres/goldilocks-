@@ -92,10 +92,45 @@ class Arena2Scene extends Phaser.Scene {
         // Player death state (identical to Arena 1)
         this.isDead = false;
         
-        // Add ground collision (identical to Arena 1)
-        this.physics.add.collider(this.player, this.groundCollider);
+        // Spawn black bear (or tinted brown bear as fallback) - IDENTICAL physics to Arena 1
+        const bearKey = this.textures.exists('bearBlack') ? 'bearBlack' : 'bearBrown';
+        this.bear = this.physics.add.sprite(this.sys.game.config.width * 0.78, this.sys.game.config.height * 0.5, bearKey);
+        this.bear.setDisplaySize(this.sys.game.config.width * 0.108, this.sys.game.config.height * 0.216);
+        this.bear.setOrigin(0.5, 1);
+        this.bear.setCollideWorldBounds(true);
+        this.bear.body.setGravityY(400);
         
-        console.log('[SCENE] Arena2Scene started with champion spawn');
+        // Apply black tint if using brown bear as fallback
+        if (bearKey === 'bearBrown') {
+            this.bear.setTint(0x222222); // Dark tint to make it "black"
+        }
+        
+        // Set bear body size and offset (identical to Arena 1)
+        const bearBodyW = 35;
+        const bearBodyH = 40;
+        const bearOffsetX = 12;
+        this.bear.body.setSize(bearBodyW, bearBodyH, false);
+        this.bear.body.setOffset(bearOffsetX, this.bear.height - bearBodyH);
+        
+        // Bear properties (identical to Arena 1)
+        this.bearSpeed = 80;
+        this.bearFacing = 'left';
+        this.bearIsAttacking = false;
+        this.bearAttackCooldown = false;
+        this.bearJumpCooldown = false;
+        this.bearAttackHitbox = null;
+        
+        // Bear health system (identical to Arena 1)
+        this.bearMaxHealth = 100;
+        this.bearCurrentHealth = this.bearMaxHealth;
+        this.bearIsDead = false;
+        this.bearHitCooldown = false;
+        
+        // Add ground collision for both player and bear (identical to Arena 1)
+        this.physics.add.collider(this.player, this.groundCollider);
+        this.physics.add.collider(this.bear, this.groundCollider);
+        
+        console.log('[SCENE] Arena2Scene started with champion and black bear spawn');
         
         // Add Enter key to go back to TitleScene
         this.input.keyboard.on('keydown-ENTER', () => {
@@ -147,6 +182,9 @@ class Arena2Scene extends Phaser.Scene {
         } else if (!this.keyQ.isDown && this.isBlocking) {
             this.stopBlocking();
         }
+        
+        // Bear AI (identical to Arena 1)
+        this.updateBearAI();
     }
 
     performAttack() {
@@ -165,6 +203,18 @@ class Arena2Scene extends Phaser.Scene {
         this.attackHitbox.setDisplaySize(this.player.displayWidth * 0.6, this.player.displayHeight * 0.5);
         this.attackHitbox.setVisible(false);
         this.attackHitbox.body.setImmovable(true);
+        
+        // Add collision detection with a flag to prevent false hits
+        this.attackHitbox.attackActive = true;
+        this.attackHitbox.attackId = Date.now(); // Unique identifier for this attack
+        
+        // Use a one-time collision that gets removed after use
+        this.physics.add.overlap(this.attackHitbox, this.bear, () => {
+            if (this.attackHitbox && this.attackHitbox.attackActive && this.isAttacking && this.attackHitbox.attackId) {
+                this.handlePlayerAttackHit();
+                this.attackHitbox.attackActive = false; // Prevent multiple hits
+            }
+        }, null, this);
         
         // Remove hitbox after 200ms
         this.time.delayedCall(200, () => {
@@ -195,6 +245,160 @@ class Arena2Scene extends Phaser.Scene {
             this.blockIndicator.destroy();
             this.blockIndicator = null;
         }
+    }
+
+    updateBearAI() {
+        // Don't do anything if player is dead
+        if (this.bearIsDead || this.isDead) return;
+        
+        // Calculate distance to player
+        const distanceToPlayer = this.player.x - this.bear.x;
+        
+        // Update bear facing direction
+        if (distanceToPlayer > 0) {
+            this.bearFacing = 'right';
+        } else {
+            this.bearFacing = 'left';
+        }
+        
+        // Flip bear sprite
+        if (this.bearFacing === 'left') {
+            this.bear.setFlipX(true);
+        } else if (this.bearFacing === 'right') {
+            this.bear.setFlipX(false);
+        }
+        
+        // Check if bear should jump (player is above and within range)
+        const bearOnGround = this.bear.body.onFloor() || this.bear.body.blocked.down || this.bear.body.touching.down;
+        const distanceToPlayerY = this.player.y - this.bear.y;
+        const playerIsAbove = distanceToPlayerY < -30; // Player is 30+ pixels above bear
+        const playerInHorizontalRange = Math.abs(distanceToPlayer) < 80;
+        
+        if (bearOnGround && playerIsAbove && playerInHorizontalRange && !this.bearJumpCooldown && !this.bearIsAttacking) {
+            // Bear jumps to reach player above
+            this.bear.setVelocityY(-450);
+            
+            // Add jump cooldown
+            this.bearJumpCooldown = true;
+            this.time.delayedCall(2000, () => {
+                this.bearJumpCooldown = false;
+            });
+        }
+        
+        // Bear movement - follow player
+        if (Math.abs(distanceToPlayer) > 20) {
+            if (distanceToPlayer > 0) {
+                this.bear.setVelocityX(this.bearSpeed);
+            } else {
+                this.bear.setVelocityX(-this.bearSpeed);
+            }
+        } else {
+            this.bear.setVelocityX(0);
+        }
+        
+        // Attack when close and not on cooldown (regardless of movement)
+        if (Math.abs(distanceToPlayer) <= 40 && !this.bearAttackCooldown) {
+            this.bearAttack();
+        }
+    }
+
+    bearAttack() {
+        // Don't attack if player is dead
+        if (this.isDead) return;
+        
+        this.bearIsAttacking = true;
+        this.bear.setVelocityX(0);
+        
+        // After wind-up delay, create actual attack hitbox
+        this.time.delayedCall(800, () => {
+            if (!this.bearIsAttacking) return;
+            
+            // Create bear attack hitbox
+            const attackOffset = this.bearFacing === 'right' ? this.bear.displayWidth * 0.6 : -this.bear.displayWidth * 0.6;
+            this.bearAttackHitbox = this.physics.add.sprite(
+                this.bear.x + attackOffset,
+                this.bear.y,
+                null
+            );
+            
+            this.bearAttackHitbox.setDisplaySize(this.bear.displayWidth * 0.5, this.bear.displayHeight * 0.6);
+            this.bearAttackHitbox.setVisible(false);
+            this.bearAttackHitbox.body.setImmovable(true);
+            
+            // Remove attack hitbox after 400ms
+            this.time.delayedCall(400, () => {
+                if (this.bearAttackHitbox) {
+                    this.bearAttackHitbox.destroy();
+                    this.bearAttackHitbox = null;
+                }
+                this.bearIsAttacking = false;
+                
+                // Start attack cooldown
+                this.bearAttackCooldown = true;
+                this.time.delayedCall(2500, () => {
+                    this.bearAttackCooldown = false;
+                });
+            });
+        });
+        
+        // Reset attacking state after wind-up phase (even if attack is cancelled)
+        this.time.delayedCall(1200, () => {
+            if (this.bearIsAttacking) {
+                this.bearIsAttacking = false;
+            }
+        });
+    }
+
+    handlePlayerAttackHit() {
+        // Only process hit if player is actually attacking AND attack hitbox is active AND has valid attack ID
+        if (!this.isAttacking || !this.attackHitbox || !this.attackHitbox.attackActive || !this.attackHitbox.attackId) return;
+        
+        // Don't damage dead bear or if already hit recently
+        if (this.bearIsDead || this.bearHitCooldown) return;
+        
+        // Prevent multiple hits from same attack
+        this.bearHitCooldown = true;
+        
+        // Damage based on attack type (assuming light attack for now)
+        const damage = 8;
+        
+        // Apply damage to bear
+        this.bearCurrentHealth -= damage;
+        
+        console.log(`Bear takes ${damage} damage! Health: ${this.bearCurrentHealth}/${this.bearMaxHealth}`);
+        
+        // Check if bear dies
+        if (this.bearCurrentHealth <= 0) {
+            this.bearCurrentHealth = 0;
+            this.bearDies();
+        } else {
+            // Flash bear red to show damage
+            this.bear.setTint(0xff4444);
+            this.time.delayedCall(150, () => {
+                if (!this.bearIsDead) {
+                    this.bear.clearTint();
+                }
+            });
+        }
+        
+        // Reset hit cooldown after 500ms
+        this.time.delayedCall(500, () => {
+            this.bearHitCooldown = false;
+        });
+    }
+
+    bearDies() {
+        this.bearIsDead = true;
+        this.bear.setVelocityX(0);
+        
+        // Clear any attack tinting
+        this.bear.clearTint();
+        
+        // Visual death effect
+        this.bear.setTint(0x666666);
+        this.bear.setVelocityX(0);
+        
+        console.log('Black bear defeated!');
     }
     
     createArenaBackground() {

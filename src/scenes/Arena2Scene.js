@@ -1,11 +1,22 @@
 class Arena2Scene extends Phaser.Scene {
     constructor() {
-        super({ key: 'Arena2Scene' });
+        super({
+            key: 'Arena2Scene',
+            physics: {
+                arcade: {
+                    gravity: { y: 300 },
+                    debug: false
+                }
+            }
+        });
     }
     
     preload() {
         // Preload banner sprite
         this.load.image('banner', 'assets/sprites/Banner.png');
+        
+        // Preload champion sprite (required for player)
+        this.load.image('champion', 'assets/sprites/Champion.png');
         
         // Preload black bear asset with safe fallback
         this.load.image('bearBlack', 'assets/sprites/Black Bear.png');

@@ -61,11 +61,18 @@ class GameScene extends Phaser.Scene {
         this.blockIndicator = null;
         this.facing = 'right';
         
+        // Player attack cooldown
+        this.playerAttackCooldown = false;
+        this.playerAttackCooldownTime = 800; // 800ms cooldown
+        
         // Player health system
-        this.playerMaxHealth = 60;
+        this.playerMaxHealth = 50;
         this.playerCurrentHealth = this.playerMaxHealth;
         this.playerIsDead = false;
         this.playerHitCooldown = false;
+        
+        // Player death state
+        this.isDead = false;
         
         // Add bear
         this.bear = this.physics.add.sprite(this.sys.game.config.width * 0.78, this.sys.game.config.height * 0.5, 'bear');
@@ -106,6 +113,9 @@ class GameScene extends Phaser.Scene {
     }
 
     update() {
+        // Early return if player is dead
+        if (this.isDead) return;
+        
         // Update facing direction
         if (this.keyA.isDown && !this.keyD.isDown) {
             this.facing = 'left';
@@ -136,7 +146,7 @@ class GameScene extends Phaser.Scene {
         }
         
         // Player attack
-        if (Phaser.Input.Keyboard.JustDown(this.keyE) && !this.isAttacking && !this.isBlocking) {
+        if (Phaser.Input.Keyboard.JustDown(this.keyE) && !this.isAttacking && !this.isBlocking && !this.playerAttackCooldown) {
             this.performAttack();
         }
         
@@ -165,8 +175,14 @@ class GameScene extends Phaser.Scene {
         this.attackHitbox.setVisible(false);
         this.attackHitbox.body.setImmovable(true);
         
-        // Add collision detection
-        this.physics.add.overlap(this.attackHitbox, this.bear, () => this.handlePlayerAttackHit(), null, this);
+        // Add collision detection with a flag to prevent false hits
+        this.attackHitbox.attackActive = true;
+        this.physics.add.overlap(this.attackHitbox, this.bear, () => {
+            if (this.attackHitbox && this.attackHitbox.attackActive && this.isAttacking) {
+                this.handlePlayerAttackHit();
+                this.attackHitbox.attackActive = false; // Prevent multiple hits
+            }
+        }, null, this);
         
         // Remove hitbox after 200ms
         this.time.delayedCall(200, () => {
@@ -175,6 +191,12 @@ class GameScene extends Phaser.Scene {
                 this.attackHitbox = null;
             }
             this.isAttacking = false;
+        });
+        
+        // Start attack cooldown
+        this.playerAttackCooldown = true;
+        this.time.delayedCall(this.playerAttackCooldownTime, () => {
+            this.playerAttackCooldown = false;
         });
     }
     
@@ -205,6 +227,9 @@ class GameScene extends Phaser.Scene {
     }
     
     updateBearAI() {
+        // Don't do anything if player is dead
+        if (this.bearIsDead || this.isDead) return;
+        
         // Calculate distance to player
         const distanceToPlayer = this.player.x - this.bear.x;
         
@@ -248,15 +273,18 @@ class GameScene extends Phaser.Scene {
             }
         } else {
             this.bear.setVelocityX(0);
-            
-            // Attack when close and not on cooldown
-            if (!this.bearAttackCooldown) {
-                this.bearAttack();
-            }
+        }
+        
+        // Attack when close and not on cooldown (regardless of movement)
+        if (Math.abs(distanceToPlayer) <= 40 && !this.bearAttackCooldown) {
+            this.bearAttack();
         }
     }
     
     bearAttack() {
+        // Don't attack if player is dead
+        if (this.isDead) return;
+        
         this.bearIsAttacking = true;
         this.bear.setVelocityX(0);
         
@@ -305,6 +333,9 @@ class GameScene extends Phaser.Scene {
     }
     
     handlePlayerAttackHit() {
+        // Only process hit if player is actually attacking AND attack hitbox is active
+        if (!this.isAttacking || !this.attackHitbox || !this.attackHitbox.attackActive) return;
+        
         // Don't damage dead bear or if already hit recently
         if (this.bearIsDead || this.bearHitCooldown) return;
         
@@ -377,7 +408,8 @@ class GameScene extends Phaser.Scene {
         // Check if player dies
         if (this.playerCurrentHealth <= 0) {
             this.playerCurrentHealth = 0;
-            this.playerDies();
+            this.die();
+            return;
         } else {
             // Flash player red to show damage
             this.player.setTint(0xff4444);
@@ -394,6 +426,10 @@ class GameScene extends Phaser.Scene {
     playerDies() {
         console.log('Player defeated!');
         this.playerIsDead = true;
+        this.isDead = true;
+        
+        // Call die method
+        this.die();
         
         // Stop any ongoing actions
         this.isAttacking = false;
@@ -427,6 +463,18 @@ class GameScene extends Phaser.Scene {
         this.input.keyboard.once('keydown-R', () => {
             this.scene.restart();
         });
+    }
+    
+    die() {
+        if (this.isDead) return;
+        this.isDead = true;
+        this.player.setVelocityX(0); // keep gravity so they land
+        if (this.attackHitbox) {
+            this.attackHitbox.setActive(false);
+            this.attackHitbox.setVisible(false);
+        }
+        this.player.clearTint();
+        // optional death anim here
     }
     
     bearDies() {

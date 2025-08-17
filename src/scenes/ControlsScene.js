@@ -4,6 +4,9 @@ class ControlsScene extends Phaser.Scene {
     }
 
     create() {
+        // Reset keyboard state to avoid stale input
+        this.input.keyboard.resetKeys();
+        
         // Set background color
         this.cameras.main.setBackgroundColor('#FFFEF7');
         
@@ -11,77 +14,55 @@ class ControlsScene extends Phaser.Scene {
         const W = this.scale.width;
         const H = this.scale.height;
         
-        // Title
-        this.add.text(W / 2, H * 0.2, 'HOW TO PLAY', {
+        // Big title "Controls"
+        this.add.text(W / 2, H * 0.2, 'CONTROLS', {
             fontFamily: 'monospace',
             fontSize: '32px',
             color: '#2c3e50',
             align: 'center'
         }).setOrigin(0.5);
         
-        // Controls section
-        const controlsY = H * 0.4;
+        // Control lines
         const controls = [
-            { key: 'A', action: 'Move Left' },
-            { key: 'D', action: 'Move Right' },
-            { key: 'SPACE', action: 'Jump' },
-            { key: 'E', action: 'Attack' },
-            { key: 'Q', action: 'Block' }
+            'Move: A / D',
+            'Jump: SPACE', 
+            'Attack: E',
+            'Block: Q'
         ];
         
+        const startY = H * 0.4;
         controls.forEach((control, index) => {
-            const y = controlsY + (index * 40);
-            
-            // Key binding
-            this.add.text(W * 0.35, y, control.key, {
+            this.add.text(W / 2, startY + (index * 30), control, {
                 fontFamily: 'monospace',
-                fontSize: '24px',
-                color: '#e74c3c',
-                align: 'right'
-            }).setOrigin(1, 0.5);
-            
-            // Action description
-            this.add.text(W * 0.4, y, `- ${control.action}`, {
-                fontFamily: 'monospace',
-                fontSize: '20px',
-                color: '#2c3e50',
-                align: 'left'
-            }).setOrigin(0, 0.5);
+                fontSize: '18px',
+                color: '#34495e',
+                align: 'center'
+            }).setOrigin(0.5);
         });
         
-        // Instructions
-        this.add.text(W / 2, H * 0.7, 'Defeat the bear to progress to the next arena!', {
+        // Footer: "Press ENTER to begin"
+        this.add.text(W / 2, H * 0.8, 'Press ENTER to begin', {
             fontFamily: 'monospace',
-            fontSize: '16px',
-            color: '#7f8c8d',
-            align: 'center'
-        }).setOrigin(0.5);
-        
-        // Press ENTER prompt
-        this.add.text(W / 2, H * 0.85, 'Press ENTER to Start', {
-            fontFamily: 'monospace',
-            fontSize: '24px',
+            fontSize: '20px',
             color: '#27ae60',
             align: 'center'
         }).setOrigin(0.5);
         
-        // Add ENTER key functionality
-        this.input.keyboard.on('keydown-ENTER', () => {
-            console.log('Starting game from controls screen');
-            this.scene.start('GameScene');
-        });
-        
-        // Also allow clicking anywhere to start
-        this.input.on('pointerdown', () => {
-            console.log('Starting game from mouse click');
+        // ONE-SHOT key handler
+        this.input.keyboard.once('keydown-ENTER', () => {
+            // Clear any lingering input, then:
+            this.input.keyboard.removeAllListeners();
             this.scene.start('GameScene');
         });
         
         console.log('[SCENE] ControlsScene started');
-        console.log('ControlsScene loaded successfully');
+    }
+
+    shutdown() {
+        // Remove all listeners
+        this.input.keyboard.removeAllListeners();
     }
 }
 
 // Make it globally available
 window.ControlsScene = ControlsScene;
-console.log('ControlsScene registered globally');

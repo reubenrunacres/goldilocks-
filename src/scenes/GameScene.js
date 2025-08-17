@@ -18,6 +18,9 @@ class GameScene extends Phaser.Scene {
     }
 
     create() {
+        // Reset keyboard state to avoid stale input
+        this.input.keyboard.resetKeys();
+        
         // Create arena background
         this.createArenaBackground();
         
@@ -512,6 +515,18 @@ class GameScene extends Phaser.Scene {
         }).setOrigin(0.5);
 
         this.victoryUI.add([dim, title, press]);
+        
+        // Ensure input still works even if physics paused:
+        this.input.keyboard.enabled = true;
+        // Remove any prior ENTER listeners:
+        this.input.keyboard.off('keydown-ENTER');
+        // One-shot continue to Arena2Scene
+        this.input.keyboard.once('keydown-ENTER', () => {
+            this.input.keyboard.removeAllListeners();
+            // Clean shutdown
+            this.scene.stop('GameScene');
+            this.scene.start('Arena2Scene');
+        });
     }
     
     bearDies() {
@@ -595,5 +610,10 @@ class GameScene extends Phaser.Scene {
         const trimWidth = Math.floor(carpetHeight * 0.25);
         this.add.rectangle(carpetX, carpetY, trimWidth, carpetHeight, 0xF7C843).setOrigin(0, 0).setDepth(-3);
         this.add.rectangle(carpetX + carpetWidth - trimWidth, carpetY, trimWidth, carpetHeight, 0xF7C843).setOrigin(0, 0).setDepth(-3);
+    }
+
+    shutdown() {
+        // Remove all listeners
+        this.input.keyboard.removeAllListeners();
     }
 }

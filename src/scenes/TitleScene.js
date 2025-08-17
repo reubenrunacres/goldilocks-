@@ -4,6 +4,9 @@ class TitleScene extends Phaser.Scene {
     }
 
     create() {
+        // Reset keyboard state to avoid stale input
+        this.input.keyboard.resetKeys();
+        
         // Set background to black
         this.cameras.main.setBackgroundColor('#000000');
         
@@ -52,5 +55,10 @@ class TitleScene extends Phaser.Scene {
             fontSize: '8px',
             fill: '#444444'
         }).setOrigin(0.5);
+    }
+
+    shutdown() {
+        // Remove all listeners
+        this.input.keyboard.removeAllListeners();
     }
 }

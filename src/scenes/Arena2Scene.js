@@ -112,8 +112,8 @@ class Arena2Scene extends Phaser.Scene {
         this.bear.body.setSize(bearBodyW, bearBodyH, false);
         this.bear.body.setOffset(bearOffsetX, this.bear.height - bearBodyH);
         
-        // Bear properties - BLACK BEAR +20% STATS (faster, stronger than brown)
-        this.bearSpeed = Math.round(80 * 1.2); // 80 * 1.2 = 96
+        // Bear properties - BLACK BEAR +50% STATS (much faster, stronger than brown)
+        this.bearSpeed = Math.round(80 * 1.5); // 80 * 1.5 = 120
         this.bearFacing = 'left';
         this.bearIsAttacking = false;
         this.bearAttackCooldown = false;
@@ -128,9 +128,9 @@ class Arena2Scene extends Phaser.Scene {
         
         // Log black bear stats for verification
         console.log('BLACK BEAR STATS (Arena 2):');
-        console.log(`- Speed: ${this.bearSpeed} (vs brown bear: 80)`);
-        console.log(`- Attack cooldown: 2000ms (vs brown bear: 2500ms - 20% faster)`);
-        console.log(`- Damage: 10 per hit (vs brown bear: 8 - 25% stronger)`);
+        console.log(`- Speed: ${this.bearSpeed} (vs brown bear: 80 - 50% faster)`);
+        console.log(`- Attack cooldown: 1500ms (vs brown bear: 2500ms - 40% faster)`);
+        console.log(`- Damage: 12 per hit (vs brown bear: 8 - 50% stronger)`);
         console.log(`- Jump velocity: -450 (vs brown bear: -450 - same for now)`);
         
         // Add ground collision for both player and bear (identical to Arena 1)
@@ -343,9 +343,9 @@ class Arena2Scene extends Phaser.Scene {
                 }
                 this.bearIsAttacking = false;
                 
-                // Start attack cooldown - BLACK BEAR 20% FASTER ATTACKS
+                // Start attack cooldown - BLACK BEAR 40% FASTER ATTACKS
                 this.bearAttackCooldown = true;
-                this.time.delayedCall(2000, () => { // 2500 * 0.8 = 2000ms (20% faster)
+                this.time.delayedCall(1500, () => { // 2500 * 0.6 = 1500ms (40% faster)
                     this.bearAttackCooldown = false;
                 });
             });
@@ -418,8 +418,8 @@ class Arena2Scene extends Phaser.Scene {
         // Prevent multiple hits from same attack
         this.playerHitCooldown = true;
         
-        // BLACK BEAR +20% DAMAGE (stronger than brown bear)
-        const damage = Math.round(8 * 1.2); // 8 * 1.2 = 10 damage
+        // BLACK BEAR +50% DAMAGE (much stronger than brown bear)
+        const damage = 12; // 12 damage vs brown bear's 8 damage
         
         // Apply damage to player
         this.playerCurrentHealth -= damage;

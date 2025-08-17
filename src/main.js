@@ -11,7 +11,7 @@ const config = {
         width: 1280,
         height: 720
     },
-    scene: [TitleScene, GameScene, Arena2Scene] // TitleScene must be first
+    scene: [TitleScene, ControlsScene, GameScene, Arena2Scene] // TitleScene must be first
 };
 
 const game = new Phaser.Game(config);

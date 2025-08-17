@@ -39,8 +39,8 @@ class TitleScene extends Phaser.Scene {
         
         // Route keys from TitleScene to the arenas
         this.input.keyboard.once('keydown-ENTER', () => {
-            console.log('Title → GameScene (Arena 1)');
-            this.scene.start('GameScene');
+            console.log('Title → ControlsScene');
+            this.scene.start('ControlsScene');
         });
 
         // DEV shortcuts (helpful while wiring):

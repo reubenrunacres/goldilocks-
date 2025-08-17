@@ -112,8 +112,8 @@ class Arena2Scene extends Phaser.Scene {
         this.bear.body.setSize(bearBodyW, bearBodyH, false);
         this.bear.body.setOffset(bearOffsetX, this.bear.height - bearBodyH);
         
-        // Bear properties (identical to Arena 1)
-        this.bearSpeed = 80;
+        // Bear properties - BLACK BEAR +20% STATS (faster, stronger than brown)
+        this.bearSpeed = Math.round(80 * 1.2); // 80 * 1.2 = 96
         this.bearFacing = 'left';
         this.bearIsAttacking = false;
         this.bearAttackCooldown = false;
@@ -125,6 +125,13 @@ class Arena2Scene extends Phaser.Scene {
         this.bearCurrentHealth = this.bearMaxHealth;
         this.bearIsDead = false;
         this.bearHitCooldown = false;
+        
+        // Log black bear stats for verification
+        console.log('BLACK BEAR STATS (Arena 2):');
+        console.log(`- Speed: ${this.bearSpeed} (vs brown bear: 80)`);
+        console.log(`- Attack cooldown: 2000ms (vs brown bear: 2500ms - 20% faster)`);
+        console.log(`- Damage: 10 per hit (vs brown bear: 8 - 25% stronger)`);
+        console.log(`- Jump velocity: -450 (vs brown bear: -450 - same for now)`);
         
         // Add ground collision for both player and bear (identical to Arena 1)
         this.physics.add.collider(this.player, this.groundCollider);
@@ -325,6 +332,9 @@ class Arena2Scene extends Phaser.Scene {
             this.bearAttackHitbox.setVisible(false);
             this.bearAttackHitbox.body.setImmovable(true);
             
+            // Add collision detection between bear attack and player
+            this.physics.add.overlap(this.bearAttackHitbox, this.player, this.handleBearAttackHit, null, this);
+            
             // Remove attack hitbox after 400ms
             this.time.delayedCall(400, () => {
                 if (this.bearAttackHitbox) {
@@ -333,9 +343,9 @@ class Arena2Scene extends Phaser.Scene {
                 }
                 this.bearIsAttacking = false;
                 
-                // Start attack cooldown
+                // Start attack cooldown - BLACK BEAR 20% FASTER ATTACKS
                 this.bearAttackCooldown = true;
-                this.time.delayedCall(2500, () => {
+                this.time.delayedCall(2000, () => { // 2500 * 0.8 = 2000ms (20% faster)
                     this.bearAttackCooldown = false;
                 });
             });
@@ -399,6 +409,52 @@ class Arena2Scene extends Phaser.Scene {
         this.bear.setVelocityX(0);
         
         console.log('Black bear defeated!');
+    }
+
+    handleBearAttackHit() {
+        // Don't damage if player is dead or already hit recently
+        if (this.isDead || this.playerHitCooldown) return;
+        
+        // Prevent multiple hits from same attack
+        this.playerHitCooldown = true;
+        
+        // BLACK BEAR +20% DAMAGE (stronger than brown bear)
+        const damage = Math.round(8 * 1.2); // 8 * 1.2 = 10 damage
+        
+        // Apply damage to player
+        this.playerCurrentHealth -= damage;
+        
+        console.log(`Player takes ${damage} damage from BLACK BEAR! Health: ${this.playerCurrentHealth}/${this.playerMaxHealth}`);
+        
+        // Check if player dies
+        if (this.playerCurrentHealth <= 0) {
+            this.playerCurrentHealth = 0;
+            this.playerDies();
+        } else {
+            // Flash player red to show damage
+            this.player.setTint(0xff4444);
+            this.time.delayedCall(150, () => {
+                if (!this.isDead) {
+                    this.player.clearTint();
+                }
+            });
+        }
+        
+        // Reset hit cooldown after 500ms
+        this.time.delayedCall(500, () => {
+            this.playerHitCooldown = false;
+        });
+    }
+
+    playerDies() {
+        this.isDead = true;
+        this.player.setVelocityX(0);
+        this.player.setVelocityY(0);
+        
+        // Visual death effect
+        this.player.setTint(0x666666);
+        
+        console.log('Player defeated by black bear!');
     }
     
     createArenaBackground() {

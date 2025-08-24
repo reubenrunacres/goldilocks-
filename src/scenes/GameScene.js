@@ -92,12 +92,18 @@ class GameScene extends Phaser.Scene {
         this.bear.body.setOffset(bearOffsetX, this.bear.height - bearBodyH);
         
         // Bear properties
-        this.bearSpeed = 80;
+        this.bearSpeed = 140; // Brown bear move speed
         this.bearFacing = 'left';
         this.bearIsAttacking = false;
         this.bearAttackCooldown = false;
         this.bearJumpCooldown = false;
         this.bearAttackHitbox = null;
+        
+        // Bear AI parameters
+        this.aggroRadius = 420; // Distance at which bear becomes aggressive
+        this.attackRange = 88; // Distance at which bear can attack
+        this.attackCooldown = 900; // Brown bear attack cooldown in ms
+        this.reactionTime = 150; // Anti-cheese: short delay before attacking
         
         // Bear health system
         this.bearMaxHealth = 100;
@@ -239,11 +245,11 @@ class GameScene extends Phaser.Scene {
         // Don't do anything if player is dead
         if (this.bearIsDead || this.isDead) return;
         
-        // Calculate distance to player
-        const distanceToPlayer = this.player.x - this.bear.x;
+        // Calculate distance to player (always check distance, not velocity)
+        const distanceToPlayer = Math.abs(this.player.x - this.bear.x);
         
         // Update bear facing direction
-        if (distanceToPlayer > 0) {
+        if (this.player.x > this.bear.x) {
             this.bearFacing = 'right';
         } else {
             this.bearFacing = 'left';
@@ -260,7 +266,7 @@ class GameScene extends Phaser.Scene {
         const bearOnGround = this.bear.body.onFloor() || this.bear.body.blocked.down || this.bear.body.touching.down;
         const distanceToPlayerY = this.player.y - this.bear.y;
         const playerIsAbove = distanceToPlayerY < -30; // Player is 30+ pixels above bear
-        const playerInHorizontalRange = Math.abs(distanceToPlayer) < 80;
+        const playerInHorizontalRange = distanceToPlayer < 80;
         
         if (bearOnGround && playerIsAbove && playerInHorizontalRange && !this.bearJumpCooldown && !this.bearIsAttacking) {
             // Bear jumps to reach player above
@@ -273,20 +279,28 @@ class GameScene extends Phaser.Scene {
             });
         }
         
-        // Bear movement - follow player
-        if (Math.abs(distanceToPlayer) > 20) {
-            if (distanceToPlayer > 0) {
-                this.bear.setVelocityX(this.bearSpeed);
-            } else {
-                this.bear.setVelocityX(-this.bearSpeed);
+        // Bear AI behavior based on distance
+        if (distanceToPlayer <= this.aggroRadius) {
+            // Bear is in aggro range - pursue and attack
+            if (distanceToPlayer <= this.attackRange && !this.bearAttackCooldown && !this.bearIsAttacking) {
+                // Player is in attack range - attack with anti-cheese delay
+                this.bear.setVelocityX(0); // Stop moving to attack
+                this.time.delayedCall(this.reactionTime, () => {
+                    if (!this.bearAttackCooldown && !this.bearIsAttacking) {
+                        this.bearAttack();
+                    }
+                });
+            } else if (distanceToPlayer > this.attackRange) {
+                // Player is in aggro range but not attack range - move towards player
+                if (this.bearFacing === 'right') {
+                    this.bear.setVelocityX(this.bearSpeed);
+                } else {
+                    this.bear.setVelocityX(-this.bearSpeed);
+                }
             }
         } else {
+            // Player is outside aggro range - bear stops moving
             this.bear.setVelocityX(0);
-        }
-        
-        // Attack when close and not on cooldown (regardless of movement)
-        if (Math.abs(distanceToPlayer) <= 40 && !this.bearAttackCooldown) {
-            this.bearAttack();
         }
     }
     
@@ -326,7 +340,7 @@ class GameScene extends Phaser.Scene {
                 
                 // Start attack cooldown
                 this.bearAttackCooldown = true;
-                this.time.delayedCall(2500, () => {
+                this.time.delayedCall(this.attackCooldown, () => {
                     this.bearAttackCooldown = false;
                 });
             });

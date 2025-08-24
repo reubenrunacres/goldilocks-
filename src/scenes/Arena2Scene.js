@@ -126,6 +126,20 @@ class Arena2Scene extends Phaser.Scene {
         this.attackCooldown = 700; // Black bear attack cooldown in ms
         this.reactionTime = 150; // Anti-cheese: short delay before attacking
         
+        // New close-quarters AI parameters
+        this.AGGRO_RADIUS = 420;
+        this.ATTACK_RANGE = 88;
+        this.PUNISH_RADIUS = 64;      // inside this, force a quick punish
+        this.STANDOFF_DIST = 72;      // distance the bear prefers to keep when not attacking
+        this.COOLDOWN_MS = 700;       // black bear cooldown
+        this.REACTION_MS = 150;
+        
+        // State tracking for new AI
+        this.bearState = 'IDLE';      // IDLE, AGGRO, PROXIMITY, ATTACK, REPOSITION
+        this.lastDamagedAt = 0;       // timestamp of last damage
+        this.repositionEndTime = 0;   // when reposition state ends
+        this.proximityAttackCooldown = false;
+        
         // Bear health system (identical to Arena 1)
         this.bearMaxHealth = 100;
         this.bearCurrentHealth = this.bearMaxHealth;
@@ -298,27 +312,87 @@ class Arena2Scene extends Phaser.Scene {
             });
         }
         
-        // Bear AI behavior based on distance
-        if (distanceToPlayer <= this.aggroRadius) {
-            // Bear is in aggro range - pursue and attack
-            if (distanceToPlayer <= this.attackRange && !this.bearAttackCooldown && !this.bearIsAttacking) {
-                // Player is in attack range - attack with anti-cheese delay
-                this.bear.setVelocityX(0); // Stop moving to attack
-                this.time.delayedCall(this.reactionTime, () => {
-                    if (!this.bearAttackCooldown && !this.bearIsAttacking) {
-                        this.bearAttack();
-                    }
-                });
-            } else if (distanceToPlayer > this.attackRange) {
-                // Player is in aggro range but not attack range - move towards player
+        // New close-quarters AI logic
+        const currentTime = Date.now();
+        const wasRecentlyDamaged = (currentTime - this.lastDamagedAt) < 250;
+        
+        // State machine for bear AI
+        if (distanceToPlayer <= this.PUNISH_RADIUS) {
+            // Player is very close - force proximity attack or reposition
+            if (!this.proximityAttackCooldown && !this.bearIsAttacking) {
+                // Log state transition
+                if (this.bearState !== 'PROXIMITY') {
+                    console.log('BEAR: ENTER_PROXIMITY');
+                    this.bearState = 'PROXIMITY';
+                }
+                
+                // Trigger immediate proximity attack
+                this.proximityAttack();
+            } else if (distanceToPlayer < this.STANDOFF_DIST && this.bearState !== 'REPOSITION') {
+                // Too close but on cooldown - reposition
+                console.log('BEAR: ENTER_REPOSITION');
+                this.bearState = 'REPOSITION';
+                this.repositionEndTime = currentTime + 250;
+                
+                // Move away from player at 1.2x speed
+                const repositionSpeed = this.bearSpeed * 1.2;
                 if (this.bearFacing === 'right') {
-                    this.bear.setVelocityX(this.bearSpeed);
+                    this.bear.setVelocityX(-repositionSpeed);
                 } else {
-                    this.bear.setVelocityX(-this.bearSpeed);
+                    this.bear.setVelocityX(repositionSpeed);
                 }
             }
+        } else if (distanceToPlayer <= this.ATTACK_RANGE) {
+            // Player is in attack range
+            if (!this.bearAttackCooldown && !this.bearIsAttacking) {
+                // Check for counterattack if recently damaged
+                if (wasRecentlyDamaged) {
+                    // Anti-stunlock: queue counterattack for next frame after cooldown
+                    this.time.delayedCall(1, () => {
+                        if (!this.bearAttackCooldown && !this.bearIsAttacking) {
+                            this.bearAttack();
+                        }
+                    });
+                } else {
+                    // Normal attack with reaction time
+                    if (this.bearState !== 'ATTACK') {
+                        console.log('BEAR: ENTER_ATTACK');
+                        this.bearState = 'ATTACK';
+                    }
+                    
+                    this.bear.setVelocityX(0); // Stop moving to attack
+                    this.time.delayedCall(this.REACTION_MS, () => {
+                        if (!this.bearAttackCooldown && !this.bearIsAttacking) {
+                            this.bearAttack();
+                        }
+                    });
+                }
+            }
+        } else if (distanceToPlayer <= this.AGGRO_RADIUS) {
+            // Player is in aggro range but not attack range - chase
+            if (this.bearState !== 'AGGRO') {
+                console.log('BEAR: ENTER_AGGRO');
+                this.bearState = 'AGGRO';
+            }
+            
+            // Move towards player
+            if (this.bearFacing === 'right') {
+                this.bear.setVelocityX(this.bearSpeed);
+            } else {
+                this.bear.setVelocityX(-this.bearSpeed);
+            }
         } else {
-            // Player is outside aggro range - bear stops moving
+            // Player is outside aggro range - return to idle
+            if (this.bearState !== 'IDLE') {
+                console.log('BEAR: ENTER_IDLE');
+                this.bearState = 'IDLE';
+            }
+            this.bear.setVelocityX(0);
+        }
+        
+        // Handle reposition state timeout
+        if (this.bearState === 'REPOSITION' && currentTime >= this.repositionEndTime) {
+            this.bearState = 'IDLE';
             this.bear.setVelocityX(0);
         }
     }
@@ -373,6 +447,91 @@ class Arena2Scene extends Phaser.Scene {
         });
     }
 
+    proximityAttack() {
+        // Don't attack if player is dead
+        if (this.isDead) return;
+        
+        this.bearIsAttacking = true;
+        this.bear.setVelocityX(0);
+        
+        // Create immediate proximity attack hitbox (minimal windup)
+        const attackOffset = this.bearFacing === 'right' ? this.bear.displayWidth * 0.6 : -this.bear.displayWidth * 0.6;
+        this.bearAttackHitbox = this.physics.add.sprite(
+            this.bear.x + attackOffset,
+            this.bear.y,
+            null
+        );
+        
+        this.bearAttackHitbox.setDisplaySize(this.bear.displayWidth * 0.5, this.bear.displayHeight * 0.6);
+        this.bearAttackHitbox.setVisible(false);
+        this.bearAttackHitbox.body.setImmovable(true);
+        
+        // Add collision detection between bear attack and player
+        this.physics.add.overlap(this.bearAttackHitbox, this.player, this.handleProximityAttackHit, null, this);
+        
+        // Remove attack hitbox after 200ms (faster than regular attack)
+        this.time.delayedCall(200, () => {
+            if (this.bearAttackHitbox) {
+                this.bearAttackHitbox.destroy();
+                this.bearAttackHitbox = null;
+            }
+            this.bearIsAttacking = false;
+            
+            // Start proximity attack cooldown
+            this.proximityAttackCooldown = true;
+            this.time.delayedCall(this.COOLDOWN_MS, () => {
+                this.proximityAttackCooldown = false;
+            });
+        });
+    }
+    
+    handleProximityAttackHit() {
+        // Don't damage if player is dead or already hit recently
+        if (this.playerIsDead || this.playerHitCooldown) return;
+        
+        // Prevent multiple hits from same attack
+        this.playerHitCooldown = true;
+        
+        // Proximity attack damage (same as regular attack)
+        const damage = 12; // Black bear damage
+        
+        // Apply damage to player
+        this.playerCurrentHealth -= damage;
+        
+        console.log(`Player takes ${damage} damage from proximity attack! Health: ${this.playerCurrentHealth}/${this.playerMaxHealth}`);
+        
+        // Apply knockback to create space (120-180px/s for 150ms)
+        const knockbackSpeed = 150;
+        const knockbackDirection = this.bearFacing === 'right' ? 1 : -1;
+        this.player.setVelocityX(knockbackSpeed * knockbackDirection);
+        
+        // Reset knockback after 150ms
+        this.time.delayedCall(150, () => {
+            if (!this.playerIsDead) {
+                this.player.setVelocityX(0);
+            }
+        });
+        
+        // Check if player dies
+        if (this.playerCurrentHealth <= 0) {
+            this.playerCurrentHealth = 0;
+            this.playerDies();
+        } else {
+            // Flash player red to show damage
+            this.player.setTint(0xff4444);
+            this.time.delayedCall(150, () => {
+                if (!this.playerIsDead) {
+                    this.player.clearTint();
+                }
+            });
+        }
+        
+        // Reset hit cooldown after 500ms
+        this.time.delayedCall(500, () => {
+            this.playerHitCooldown = false;
+        });
+    }
+
     handlePlayerAttackHit() {
         // Only process hit if player is actually attacking AND attack hitbox is active AND has valid attack ID
         if (!this.isAttacking || !this.attackHitbox || !this.attackHitbox.attackActive || !this.attackHitbox.attackId) return;
@@ -382,6 +541,9 @@ class Arena2Scene extends Phaser.Scene {
         
         // Prevent multiple hits from same attack
         this.bearHitCooldown = true;
+        
+        // Track when bear was damaged for anti-stunlock
+        this.lastDamagedAt = Date.now();
         
         // Damage based on attack type (assuming light attack for now)
         const damage = 8;

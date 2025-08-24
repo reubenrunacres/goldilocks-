@@ -29,6 +29,12 @@ class Arena2Scene extends Phaser.Scene {
     }
     
     create() {
+        // Reset keyboard state to avoid stale input
+        this.input.keyboard.resetKeys();
+        
+        // Reset game state
+        this.isGameOver = false;
+        
         // Set background color similar to GameScene
         this.cameras.main.setBackgroundColor('#FFFEF7');
         
@@ -91,6 +97,7 @@ class Arena2Scene extends Phaser.Scene {
         
         // Player death state (identical to Arena 1)
         this.isDead = false;
+        this.isGameOver = false; // Add game over flag
         
         // Spawn black bear (or tinted brown bear as fallback) - IDENTICAL physics to Arena 1
         const bearKey = this.textures.exists('bearBlack') ? 'bearBlack' : 'bearBrown';
@@ -180,8 +187,8 @@ class Arena2Scene extends Phaser.Scene {
     }
 
     update() {
-        // Early return if player is dead
-        if (this.isDead) return;
+        // Early return if player is dead or game is over
+        if (this.isDead || this.isGameOver) return;
         
         // Track player position for velocity calculation
         this.playerLastPos.x = this.player.x;
@@ -293,8 +300,8 @@ class Arena2Scene extends Phaser.Scene {
     }
 
     updateBearAI() {
-        // Don't do anything if player is dead
-        if (this.bearIsDead || this.isDead) return;
+        // Don't do anything if player is dead or game is over
+        if (this.bearIsDead || this.isDead || this.isGameOver) return;
         
         // Calculate distance to player (always check distance, not velocity)
         const distanceToPlayer = Math.abs(this.player.x - this.bear.x);
@@ -677,13 +684,22 @@ class Arena2Scene extends Phaser.Scene {
 
     playerDies() {
         this.isDead = true;
+        this.isGameOver = true; // Add game over flag
         this.player.setVelocityX(0);
         this.player.setVelocityY(0);
         
         // Visual death effect
         this.player.setTint(0x666666);
         
+        // Stop bear AI updates
+        this.bear.setVelocityX(0);
+        
         console.log('Player defeated by black bear!');
+        
+        // After brief death animation, transition to defeat scene
+        this.time.delayedCall(600, () => {
+            this.scene.start('DefeatScene', { from: 'Arena2Scene' });
+        });
     }
     
     createArenaBackground() {

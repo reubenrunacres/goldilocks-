@@ -21,6 +21,9 @@ class GameScene extends Phaser.Scene {
         // Reset keyboard state to avoid stale input
         this.input.keyboard.resetKeys();
         
+        // Reset game state
+        this.isGameOver = false;
+        
         // Create arena background
         this.createArenaBackground();
         
@@ -76,6 +79,7 @@ class GameScene extends Phaser.Scene {
         
         // Player death state
         this.isDead = false;
+        this.isGameOver = false; // Add game over flag
         
         // Add bear
         this.bear = this.physics.add.sprite(this.sys.game.config.width * 0.78, this.sys.game.config.height * 0.5, 'bear');
@@ -150,8 +154,8 @@ class GameScene extends Phaser.Scene {
     }
 
     update() {
-        // Early return if player is dead
-        if (this.isDead) return;
+        // Early return if player is dead or game is over
+        if (this.isDead || this.isGameOver) return;
         
         // Track player position for velocity calculation
         this.playerLastPos.x = this.player.x;
@@ -274,8 +278,8 @@ class GameScene extends Phaser.Scene {
     }
     
     updateBearAI() {
-        // Don't do anything if player is dead
-        if (this.bearIsDead || this.isDead) return;
+        // Don't do anything if player is dead or game is over
+        if (this.bearIsDead || this.isDead || this.isGameOver) return;
         
         // Calculate distance to player (always check distance, not velocity)
         const distanceToPlayer = Math.abs(this.player.x - this.bear.x);
@@ -666,6 +670,7 @@ class GameScene extends Phaser.Scene {
         console.log('Player defeated!');
         this.playerIsDead = true;
         this.isDead = true;
+        this.isGameOver = true; // Add game over flag
         
         // Call die method
         this.die();
@@ -688,20 +693,12 @@ class GameScene extends Phaser.Scene {
         this.player.setTint(0x666666);
         this.player.setVelocityX(0);
         
-        // Show defeat message
-        this.add.text(160, 60, 'Defeat!', {
-            fontSize: '20px',
-            fill: '#ff0000'
-        }).setOrigin(0.5);
+        // Stop bear AI updates
+        this.bear.setVelocityX(0);
         
-        this.add.text(160, 80, 'Press R to restart', {
-            fontSize: '12px',
-            fill: '#ffffff'
-        }).setOrigin(0.5);
-        
-        // Add restart functionality
-        this.input.keyboard.once('keydown-R', () => {
-            this.scene.restart();
+        // After brief death animation, transition to defeat scene
+        this.time.delayedCall(600, () => {
+            this.scene.start('DefeatScene', { from: 'GameScene' });
         });
     }
     

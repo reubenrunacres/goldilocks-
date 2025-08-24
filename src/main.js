@@ -11,11 +11,11 @@ const config = {
         width: 1280,
         height: 720
     },
-    scene: [TitleScene, ControlsScene, GameScene, Arena2Scene] // TitleScene must be first
+    scene: [TitleScene, ControlsScene, GameScene, Arena2Scene, DefeatScene] // TitleScene must be first
 };
 
 // Debug: Check if all scenes are loaded
-console.log('Available scenes:', { TitleScene, ControlsScene, GameScene, Arena2Scene });
+console.log('Available scenes:', { TitleScene, ControlsScene, GameScene, Arena2Scene, DefeatScene });
 
 const game = new Phaser.Game(config);
 

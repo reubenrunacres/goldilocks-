@@ -113,11 +113,25 @@ class GameScene extends Phaser.Scene {
         this.COOLDOWN_MS = 900;       // brown bear cooldown
         this.REACTION_MS = 150;
         
+        // Retreat loop fix parameters
+        this.STANDOFF_HYST = 16;          // exit margin; chase resumes once dist > STANDOFF_DIST + HYST
+        this.RETREAT_COOLDOWN_MS = 900;   // min time between retreats so we don't chain it
+        this.RETREAT_DURATION_MS = 220;   // retreat window; timebox
+        this.ADVANCE_DOT_THRESH = 0.35;   // only retreat if player is moving toward bear
+        this.WALL_PROXIMITY = 32;         // do not retreat if a wall is behind the bear
+        
         // State tracking for new AI
         this.bearState = 'IDLE';      // IDLE, AGGRO, PROXIMITY, ATTACK, REPOSITION
         this.lastDamagedAt = 0;       // timestamp of last damage
         this.repositionEndTime = 0;   // when reposition state ends
         this.proximityAttackCooldown = false;
+        
+        // Retreat loop fix state tracking
+        this.lastRetreatAt = 0;       // timestamp of last retreat
+        this.retreatStartTime = 0;    // when current retreat started
+        this.playerLastPos = { x: 0, y: 0 }; // player position 1 frame ago
+        this.playerVelocity = { x: 0, y: 0 }; // computed player velocity
+        this.proximityLockoutEnd = 0; // timestamp when proximity lockout ends
         
         // Bear health system
         this.bearMaxHealth = 100;
@@ -138,6 +152,10 @@ class GameScene extends Phaser.Scene {
     update() {
         // Early return if player is dead
         if (this.isDead) return;
+        
+        // Track player position for velocity calculation
+        this.playerLastPos.x = this.player.x;
+        this.playerLastPos.y = this.player.y;
         
         // Update facing direction
         if (this.keyA.isDown && !this.keyD.isDown) {
@@ -261,6 +279,7 @@ class GameScene extends Phaser.Scene {
         
         // Calculate distance to player (always check distance, not velocity)
         const distanceToPlayer = Math.abs(this.player.x - this.bear.x);
+        const currentTime = Date.now();
         
         // Update bear facing direction
         if (this.player.x > this.bear.x) {
@@ -293,14 +312,15 @@ class GameScene extends Phaser.Scene {
             });
         }
         
-        // New close-quarters AI logic
-        const currentTime = Date.now();
-        const wasRecentlyDamaged = (currentTime - this.lastDamagedAt) < 250;
+        // Check if player is advancing toward bear
+        const playerAdvancing = this.isPlayerAdvancingTowardBear();
+        const wallBehind = this.isWallBehindBear();
+        const proximityLockoutActive = currentTime < this.proximityLockoutEnd;
         
-        // State machine for bear AI
+        // State machine for bear AI with retreat loop fix
         if (distanceToPlayer <= this.PUNISH_RADIUS) {
             // Player is very close - force proximity attack or reposition
-            if (!this.proximityAttackCooldown && !this.bearIsAttacking) {
+            if (!this.proximityAttackCooldown && !this.bearIsAttacking && !proximityLockoutActive) {
                 // Log state transition
                 if (this.bearState !== 'PROXIMITY') {
                     console.log('BEAR: ENTER_PROXIMITY');
@@ -309,24 +329,38 @@ class GameScene extends Phaser.Scene {
                 
                 // Trigger immediate proximity attack
                 this.proximityAttack();
-            } else if (distanceToPlayer < this.STANDOFF_DIST && this.bearState !== 'REPOSITION') {
-                // Too close but on cooldown - reposition
-                console.log('BEAR: ENTER_REPOSITION');
-                this.bearState = 'REPOSITION';
-                this.repositionEndTime = currentTime + 250;
+            } else if (distanceToPlayer < this.STANDOFF_DIST && this.bearState !== 'REPOSITION' && !proximityLockoutActive) {
+                // Check if retreat conditions are met
+                const canRetreat = !this.bearAttackCooldown && // cooldown NOT elapsed
+                                   playerAdvancing && // player is advancing toward bear
+                                   !wallBehind && // NOT near wall behind bear
+                                   (this.lastRetreatAt === 0 || (currentTime - this.lastRetreatAt) > this.RETREAT_COOLDOWN_MS); // retreat cooldown elapsed
                 
-                // Move away from player at 1.2x speed
-                const repositionSpeed = this.bearSpeed * 1.2;
-                if (this.bearFacing === 'right') {
-                    this.bear.setVelocityX(-repositionSpeed);
-                } else {
-                    this.bear.setVelocityX(repositionSpeed);
+                if (canRetreat) {
+                    // Enter reposition state
+                    console.log('BEAR: ENTER_REPOSITION (advancing, no wall, cooldown elapsed)');
+                    this.bearState = 'REPOSITION';
+                    this.retreatStartTime = currentTime;
+                    this.lastRetreatAt = currentTime;
+                    
+                    // Move away from player at 1.2x speed, clamped to arena bounds
+                    const repositionSpeed = this.bearSpeed * 1.2;
+                    let newX = this.bear.x;
+                    
+                    if (this.bearFacing === 'right') {
+                        newX = Math.max(0, this.bear.x - repositionSpeed * 0.016); // 0.016 = 1/60 for 60fps
+                    } else {
+                        newX = Math.min(this.sys.game.config.width, this.bear.x + repositionSpeed * 0.016);
+                    }
+                    
+                    this.bear.setVelocityX(this.bearFacing === 'right' ? -repositionSpeed : repositionSpeed);
                 }
             }
         } else if (distanceToPlayer <= this.ATTACK_RANGE) {
             // Player is in attack range
             if (!this.bearAttackCooldown && !this.bearIsAttacking) {
                 // Check for counterattack if recently damaged
+                const wasRecentlyDamaged = (currentTime - this.lastDamagedAt) < 250;
                 if (wasRecentlyDamaged) {
                     // Anti-stunlock: queue counterattack for next frame after cooldown
                     this.time.delayedCall(1, () => {
@@ -335,7 +369,7 @@ class GameScene extends Phaser.Scene {
                         }
                     });
                 } else {
-                    // Normal attack with reaction time
+                    // Normal attack with reaction time (attack preempts retreat)
                     if (this.bearState !== 'ATTACK') {
                         console.log('BEAR: ENTER_ATTACK');
                         this.bearState = 'ATTACK';
@@ -371,10 +405,26 @@ class GameScene extends Phaser.Scene {
             this.bear.setVelocityX(0);
         }
         
-        // Handle reposition state timeout
-        if (this.bearState === 'REPOSITION' && currentTime >= this.repositionEndTime) {
-            this.bearState = 'IDLE';
-            this.bear.setVelocityX(0);
+        // Handle reposition state exit conditions
+        if (this.bearState === 'REPOSITION') {
+            const retreatDurationElapsed = (currentTime - this.retreatStartTime) >= this.RETREAT_DURATION_MS;
+            const distanceExceeded = distanceToPlayer > (this.STANDOFF_DIST + this.STANDOFF_HYST);
+            const cooldownElapsed = !this.bearAttackCooldown;
+            const playerStoppedAdvancing = !playerAdvancing;
+            const wallDetected = wallBehind;
+            
+            if (distanceExceeded || retreatDurationElapsed || cooldownElapsed || playerStoppedAdvancing || wallDetected) {
+                let exitReason = 'unknown';
+                if (distanceExceeded) exitReason = 'distance exceeded';
+                else if (retreatDurationElapsed) exitReason = 'timeboxed';
+                else if (cooldownElapsed) exitReason = 'cooldown elapsed';
+                else if (playerStoppedAdvancing) exitReason = 'player stopped advancing';
+                else if (wallDetected) exitReason = 'wall detected';
+                
+                console.log(`BEAR: EXIT_REPOSITION (${exitReason})`);
+                this.bearState = 'IDLE';
+                this.bear.setVelocityX(0);
+            }
         }
     }
     
@@ -463,6 +513,9 @@ class GameScene extends Phaser.Scene {
             this.time.delayedCall(this.COOLDOWN_MS, () => {
                 this.proximityAttackCooldown = false;
             });
+            
+            // Add 300ms lockout to prevent immediate retreat
+            this.proximityLockoutEnd = Date.now() + 300;
         });
     }
     
@@ -791,5 +844,65 @@ class GameScene extends Phaser.Scene {
     shutdown() {
         // Remove all listeners
         this.input.keyboard.removeAllListeners();
+    }
+
+    isWallBehindBear() {
+        // Check if there's a wall behind the bear within WALL_PROXIMITY
+        const checkDistance = this.WALL_PROXIMITY;
+        const checkX = this.bear.x + (this.bearFacing === 'right' ? -checkDistance : checkDistance);
+        
+        // Check if the position is outside arena bounds or collides with world bounds
+        if (checkX <= 0 || checkX >= this.sys.game.config.width) {
+            return true; // Wall detected (arena boundary)
+        }
+        
+        // For now, assume no internal walls - can be enhanced later
+        return false;
+    }
+    
+    isPlayerAdvancingTowardBear() {
+        // Compute player velocity and check if advancing toward bear
+        if (this.playerLastPos.x === 0 && this.playerLastPos.y === 0) {
+            // First frame, can't determine velocity yet
+            return false;
+        }
+        
+        // Calculate player velocity
+        this.playerVelocity.x = this.player.x - this.playerLastPos.x;
+        this.playerVelocity.y = this.player.y - this.playerLastPos.y;
+        
+        // If player is not moving, they're not advancing
+        if (Math.abs(this.playerVelocity.x) < 1 && Math.abs(this.playerVelocity.y) < 1) {
+            return false;
+        }
+        
+        // Calculate direction from player to bear
+        const dirToBear = {
+            x: this.bear.x - this.player.x,
+            y: this.bear.y - this.player.y
+        };
+        
+        // Normalize direction to bear
+        const distToBear = Math.sqrt(dirToBear.x * dirToBear.x + dirToBear.y * dirToBear.y);
+        if (distToBear === 0) return false;
+        
+        const normalizedDirToBear = {
+            x: dirToBear.x / distToBear,
+            y: dirToBear.y / distToBear
+        };
+        
+        // Normalize player velocity
+        const playerSpeed = Math.sqrt(this.playerVelocity.x * this.playerVelocity.x + this.playerVelocity.y * this.playerVelocity.y);
+        if (playerSpeed === 0) return false;
+        
+        const normalizedPlayerVel = {
+            x: this.playerVelocity.x / playerSpeed,
+            y: this.playerVelocity.y / playerSpeed
+        };
+        
+        // Calculate dot product
+        const dotProduct = normalizedPlayerVel.x * normalizedDirToBear.x + normalizedPlayerVel.y * normalizedDirToBear.y;
+        
+        return dotProduct >= this.ADVANCE_DOT_THRESH;
     }
 }
